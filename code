@@ -1,0 +1,105 @@
+#include <Servo.h>
+
+
+const int JOY_X   = A0;   
+const int JOY_Y   = A1;   
+const int JOY_SW  = 2;    
+const int TRIG    = 3;    
+const int ECHO    = 4;    
+const int LED_PIN = 6;    
+const int SERVO_PIN = 9;  
+
+
+const int STOP_DISTANCE = 15;
+const int RESUME_MARGIN = 3;   
+const int DEAD_LOW  = 450;      
+const int DEAD_HIGH = 570;
+const int STEP_DELAY = 15;      
+
+Servo myServo;
+int angle = 90;
+int sweepDir = 1;              
+bool autoMode = false;
+bool blocked = false;
+bool lastButton = HIGH;
+int lastDir = 0;                
+int blockedDir = 0;             
+
+
+long readDistance() {
+  digitalWrite(TRIG, LOW);
+  delayMicroseconds(2);
+  digitalWrite(TRIG, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(TRIG, LOW);
+
+  long duration = pulseIn(ECHO, HIGH, 30000UL);  
+  if (duration == 0) return 999;
+  return duration * 0.0343 / 2;
+}
+
+void setup() {
+  pinMode(TRIG, OUTPUT);
+  pinMode(ECHO, INPUT);
+  pinMode(LED_PIN, OUTPUT);
+  pinMode(JOY_SW, INPUT_PULLUP);   
+
+  myServo.attach(SERVO_PIN);
+  myServo.write(angle);
+
+  Serial.begin(9600);
+  Serial.println("Ready. Joystick = manual, press button = toggle auto sweep.");
+}
+
+void loop() {
+
+  bool button = digitalRead(JOY_SW);
+  if (lastButton == HIGH && button == LOW) {
+    autoMode = !autoMode;
+    Serial.println(autoMode ? "Mode: AUTO sweep" : "Mode: MANUAL joystick");
+    delay(200);                  
+  }
+  lastButton = button;
+
+  long distance = readDistance();
+  if (!blocked && distance < STOP_DISTANCE) {
+    blocked = true;
+    blockedDir = lastDir;
+  } else if (blocked && distance > STOP_DISTANCE + RESUME_MARGIN) {
+    blocked = false;
+  }
+  digitalWrite(LED_PIN, blocked ? HIGH : LOW);
+
+  
+  if (autoMode) {
+    
+    if (!blocked) {
+      angle += sweepDir;
+      if (angle >= 180) { angle = 180; sweepDir = -1; }
+      if (angle <= 0)   { angle = 0;   sweepDir = 1;  }
+      lastDir = sweepDir;
+      myServo.write(angle);
+    }
+  } else {
+    
+    int x = analogRead(JOY_X);
+    int dir = 0;
+    if (x > DEAD_HIGH) dir = 1;
+    if (x < DEAD_LOW)  dir = -1;
+
+    if (dir != 0 && !(blocked && dir == blockedDir)) {
+      angle = constrain(angle + dir, 0, 180);
+      lastDir = dir;
+      myServo.write(angle);
+    }
+  }
+
+  Serial.print("Angle: ");
+  Serial.print(angle);
+  Serial.print("  Distance: ");
+  Serial.print(distance);
+  Serial.print(" cm  ");
+  Serial.println(blocked ? "OBSTACLE - servo stopped" : "clear");
+
+  delay(STEP_DELAY);
+}
